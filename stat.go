@@ -335,7 +335,7 @@ func (b byIPAndType) Less(i int, j int) bool {
 		return true
 	}
 
-	if less && b[i].Type < b[j].Type {
+	if b[i].Type < b[j].Type {
 		return true
 	}
 

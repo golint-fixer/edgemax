@@ -2,6 +2,7 @@ package edgemax
 
 import (
 	"encoding/json"
+	"errors"
 	"net"
 	"reflect"
 	"strconv"
@@ -9,7 +10,7 @@ import (
 	"time"
 )
 
-func TestSystemStats(t *testing.T) {
+func TestSystemStatsUnmarshalJSON(t *testing.T) {
 	var tests = []struct {
 		desc    string
 		b       []byte
@@ -66,7 +67,7 @@ func TestSystemStats(t *testing.T) {
 	}
 }
 
-func TestInterfaces(t *testing.T) {
+func TestInterfacesUnmarshalJSON(t *testing.T) {
 	var tests = []struct {
 		desc    string
 		b       []byte
@@ -213,6 +214,132 @@ func TestInterfaces(t *testing.T) {
 
 		if want, got := tt.ifis, ifis; !reflect.DeepEqual(want, got) {
 			t.Fatalf("unexpected Interfaces:\n- want: %+v\n-  got: %+v", want, got)
+		}
+	}
+}
+
+func TestDPIStatsUnmarshalJSON(t *testing.T) {
+	var tests = []struct {
+		desc    string
+		b       []byte
+		err     error
+		errType reflect.Type
+		d       DPIStats
+	}{
+		{
+			desc:    "invalid JSON",
+			b:       []byte(`foo`),
+			errType: reflect.TypeOf(&json.SyntaxError{}),
+		},
+		{
+			desc: "invalid stat type",
+			b:    []byte(`{"192.168.1.1":{"Foo":null}}`),
+			err:  errors.New(`invalid stat type: "Foo"`),
+		},
+		{
+			desc:    "invalid receive bytes",
+			b:       []byte(`{"192.168.1.1":{"foo|foo":{"rx_bytes":"foo"}}}`),
+			errType: reflect.TypeOf(&strconv.NumError{}),
+		},
+		{
+			desc:    "invalid receive rate",
+			b:       []byte(`{"192.168.1.1":{"foo|foo":{"rx_bytes":"0","rx_rate":"foo"}}}`),
+			errType: reflect.TypeOf(&strconv.NumError{}),
+		},
+		{
+			desc:    "invalid transmit bytes",
+			b:       []byte(`{"192.168.1.1":{"foo|foo":{"rx_bytes":"0","rx_rate":"0","tx_bytes":"foo"}}}`),
+			errType: reflect.TypeOf(&strconv.NumError{}),
+		},
+		{
+			desc:    "invalid transmit rate",
+			b:       []byte(`{"192.168.1.1":{"foo|foo":{"rx_bytes":"0","rx_rate":"0","tx_bytes":"0","tx_rate":"foo"}}}`),
+			errType: reflect.TypeOf(&strconv.NumError{}),
+		},
+		{
+			desc: "one IP, one DPI stat",
+			b:    []byte(`{"192.168.1.1":{"Web|Web - Other":{"rx_bytes":"1","rx_rate":"2","tx_bytes":"3","tx_rate":"4"}}}`),
+			d: DPIStats{{
+				IP:            net.ParseIP("192.168.1.1"),
+				Type:          "Web",
+				Category:      "Web - Other",
+				ReceiveBytes:  1,
+				ReceiveRate:   2,
+				TransmitBytes: 3,
+				TransmitRate:  4,
+			}},
+		},
+		{
+			desc: "one IP, two DPI stats",
+			b:    []byte(`{"192.168.1.1":{"Web|Web - Other":{"rx_bytes":"1","rx_rate":"2","tx_bytes":"3","tx_rate":"4"},"P2P|BitTorrent series":{"rx_bytes":"5","rx_rate":"6","tx_bytes":"7","tx_rate":"8"}}}`),
+			d: DPIStats{
+				{
+					IP:            net.ParseIP("192.168.1.1"),
+					Type:          "P2P",
+					Category:      "BitTorrent series",
+					ReceiveBytes:  5,
+					ReceiveRate:   6,
+					TransmitBytes: 7,
+					TransmitRate:  8,
+				},
+				{
+					IP:            net.ParseIP("192.168.1.1"),
+					Type:          "Web",
+					Category:      "Web - Other",
+					ReceiveBytes:  1,
+					ReceiveRate:   2,
+					TransmitBytes: 3,
+					TransmitRate:  4,
+				},
+			},
+		},
+		{
+			desc: "two IPs, one DPI stat each",
+			b:    []byte(`{"192.168.1.2":{"P2P|BitTorrent series":{"rx_bytes":"5","rx_rate":"6","tx_bytes":"7","tx_rate":"8"}},"192.168.1.1":{"Web|Web - Other":{"rx_bytes":"1","rx_rate":"2","tx_bytes":"3","tx_rate":"4"}}}`),
+			d: DPIStats{
+				{
+					IP:            net.ParseIP("192.168.1.1"),
+					Type:          "Web",
+					Category:      "Web - Other",
+					ReceiveBytes:  1,
+					ReceiveRate:   2,
+					TransmitBytes: 3,
+					TransmitRate:  4,
+				},
+				{
+					IP:            net.ParseIP("192.168.1.2"),
+					Type:          "P2P",
+					Category:      "BitTorrent series",
+					ReceiveBytes:  5,
+					ReceiveRate:   6,
+					TransmitBytes: 7,
+					TransmitRate:  8,
+				},
+			},
+		},
+	}
+
+	for i, tt := range tests {
+		t.Logf("[%02d] test %q", i, tt.desc)
+
+		var d DPIStats
+		err := d.UnmarshalJSON(tt.b)
+
+		if tt.err != nil {
+			if want, got := errStr(tt.err), errStr(err); want != got {
+				t.Fatalf("unexpected error:\n- want: %v\n-  got: %v", want, got)
+			}
+		} else {
+			if want, got := tt.errType, reflect.TypeOf(err); !reflect.DeepEqual(want, got) {
+				t.Fatalf("unexpected error type:\n- want: %v\n-  got: %v", want, got)
+			}
+		}
+		if err != nil {
+			continue
+		}
+
+		if want, got := tt.d, d; !reflect.DeepEqual(want, got) {
+			t.Fatalf("unexpected DPIStats:\n- want: %+v\n-  got: %+v", want, got)
 		}
 	}
 }
