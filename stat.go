@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -126,13 +127,13 @@ type InterfaceStats struct {
 // UnmarshalJSON unmarshals JSON into an Interfaces.
 func (i *Interfaces) UnmarshalJSON(b []byte) error {
 	var v map[string]struct {
-		Up        string   `json:"up"`
-		Autoneg   string   `json:"autoneg"`
-		Duplex    string   `json:"duplex"`
-		Speed     string   `json:"speed"`
-		MAC       string   `json:"mac"`
-		MTU       string   `json:"mtu"`
-		Addresses []string `json:"addresses"`
+		Up        string      `json:"up"`
+		Autoneg   string      `json:"autoneg"`
+		Duplex    string      `json:"duplex"`
+		Speed     string      `json:"speed"`
+		MAC       string      `json:"mac"`
+		MTU       string      `json:"mtu"`
+		Addresses interface{} `json:"addresses"`
 		Stats     struct {
 			RXPackets string `json:"rx_packets"`
 			TXPackets string `json:"tx_packets"`
@@ -194,14 +195,26 @@ func (i *Interfaces) UnmarshalJSON(b []byte) error {
 			}
 		}
 
-		ips := make([]net.IP, 0, len(vv.Addresses))
-		for _, ip := range vv.Addresses {
-			ip, _, err := net.ParseCIDR(ip)
-			if err != nil {
-				return err
-			}
+		ips := make([]net.IP, 0)
 
-			ips = append(ips, ip)
+		switch reflect.ValueOf(vv.Addresses).Kind() {
+		case reflect.Slice:
+			for _, ip := range vv.Addresses.([]interface{}) {
+				ip, _, err := net.ParseCIDR(ip.(string))
+				if err != nil {
+					return err
+				}
+				ips = append(ips, ip)
+			}
+		case reflect.String:
+			v := vv.Addresses.(string)
+			if v != "" {
+				ip, _, err := net.ParseCIDR(v)
+				if err != nil {
+					return err
+				}
+				ips = append(ips, ip)
+			}
 		}
 
 		is = append(is, &Interface{
